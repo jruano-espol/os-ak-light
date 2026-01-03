@@ -1,7 +1,9 @@
 #include <arpa/inet.h>
 #include <assert.h>
+#include <ctype.h>
 #include <netdb.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,6 +14,11 @@
 #include <unistd.h>
 
 #define BUFFER_SIZE 1024
+
+// Arrays
+// ------------------------------------------------------------------------------------------------------- //
+
+#define ArrayCount(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 // Printing
 // ------------------------------------------------------------------------------------------------------- //
@@ -32,6 +39,8 @@
 
 #define list_get(list, index)        ((list).data[(index)])
 #define list_set(list, index, value) ((list).data[(index)] = (value))
+
+#define list_get_last(list) list_get((list), (list).count - 1)
 
 #define list_reserve_add(list, size) do {\
     if ((list)->count + size > (list)->capacity) {\
@@ -67,11 +76,6 @@
     }\
 } while (0)
 
-// Booleans
-// ------------------------------------------------------------------------------------------------------- //
-
-typedef struct { bool* data; size_t count, capacity; } bool_list;
-
 // Strings
 // ------------------------------------------------------------------------------------------------------- //
 
@@ -80,6 +84,8 @@ typedef struct {
     size_t length;
 } String;
 
+#define PRI_String "%.*s"
+#define PRI_String_Quoted "\"%.*s\""
 #define fmt_String(str) (int)(str).length, (str).data
 
 typedef struct { String* data; size_t count, capacity; } String_list;
@@ -101,6 +107,10 @@ typedef struct { String* data; size_t count, capacity; } String_list;
     free((str)->data);\
     (str)->data = NULL;\
     (str)->length = 0;\
+} while (0)
+
+#define string_reserve(str, size) do {\
+    (str)->data = (char*)malloc(size);\
 } while (0)
 
 String_list string_split(String const str, char delimiter)
@@ -144,6 +154,104 @@ bool string_equals(String const a, String const b)
             return false;
         }
     }
+    return true;
+}
+
+bool string_is_only_whitespace(String const str)
+{
+    for (size_t i = 0; i < str.length; i++) {
+        if (!isspace(String_get(str, i))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// String Builder
+// ------------------------------------------------------------------------------------------------------- //
+
+typedef struct {
+    char* data;
+    size_t count, capacity;
+} String_Builder;
+
+#define STR_BUILDER_GROWTH_FACTOR 2
+#define fmt_String_Builder(str) (int)(str).count, (str).data
+#define String_from_builder(builder) (String){ .data = (char*)(builder).data, .length = (builder).count }
+
+#define string_builder_destroy(builder) do {\
+    assert((builder)->data != NULL);\
+    (builder)->count = (builder)->capacity = 0;\
+    free((builder)->data);\
+} while (0)
+
+void string_builder_grow_if_needed(String_Builder* builder, size_t const required)
+{
+    if (builder->count + required > builder->capacity) {
+        assert(builder->capacity >= 0);
+        if (builder->capacity == 0) {
+            builder->capacity = required;
+            builder->data = (char*)malloc(required);
+        } else {
+            size_t new_capacity = builder->capacity * STR_BUILDER_GROWTH_FACTOR;
+            while (new_capacity < builder->count + required) {
+                new_capacity *= STR_BUILDER_GROWTH_FACTOR;
+            }
+            builder->data = realloc(builder->data, new_capacity);
+            assert(builder->data != NULL);
+            builder->capacity = new_capacity;
+        }
+    }
+}
+
+void string_builder_appendf(String_Builder* builder, const char* fmt, ...)
+{
+    va_list  _args;
+    va_start(_args, fmt);
+    int const added_count = vsnprintf(NULL, 0, fmt, _args);
+    va_end(_args);
+
+    string_builder_grow_if_needed(builder, added_count);
+
+    va_list  args;
+    va_start(args, fmt);
+    vsnprintf(builder->data + builder->count, added_count + 1, fmt, args);
+    va_end(args);
+
+    builder->count += added_count;
+}
+
+
+// Files
+// ------------------------------------------------------------------------------------------------------- //
+
+bool fs_read_entire_file(const char *path, String *result) {
+    if (result == NULL) {
+        eprintfln("ERROR: Result parameter is NULL");
+        return false;
+    }
+
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        eprintfln("ERROR: Could not open file \"%s\"", path);
+        return false;
+    }
+
+    fseek(file, 0, SEEK_END);
+    size_t size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    
+    result->data = (char*)malloc((size + 1) * sizeof(*result->data));
+    if (result->data == NULL) {
+        eprintfln("ERROR: Could not allocate enough memory for opening \"%s\"", path);
+        return false;
+    }
+
+    result->length = size;
+    fread(result->data, sizeof(*result->data), result->length, file);
+    result->data[size] = '\0';
+
+    fclose(file);
     return true;
 }
 

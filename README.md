@@ -1,5 +1,19 @@
 # AK Light
 
+## Avance Práctica 3
+
+Tomando de referencia el proyecto final. La práctica será realizar un primer avance considerando la implementación de un broker, productor, consumidor y un tópico con varios niveles.
+- `tópico_general/subtópico1/subtópico2`
+
+Para los datos a sensar se va manejar indicadores como uso de memoria, espacio en disco, etc. 
+
+La implementación de tanto los brokers como los productores deberán estar en containers (dockers)
+
+Entregables:
+- Código en C
+- Informe (Capturas y explicación de lo realizado + diagrama de la solución)
+- Video (5min explicación código + 5min demo)
+
 ## Instrucciones
 
 Se requiere desarrollar y desplegar una solución de monitoreo de contenedores (Docker) para

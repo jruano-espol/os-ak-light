@@ -60,10 +60,14 @@ void* gateway_connection(void* arg)
         char buffer[BUFFER_SIZE] = {0};
         ssize_t bytes_read, total_read = 0;
         while ((bytes_read = read(client_fd, buffer, BUFFER_SIZE)) > 0) {
-            String text = (String){ .data = buffer + total_read, .length = bytes_read };
+            String text = (String){
+                .data = buffer + total_read,
+                .length = strlen(buffer + total_read),
+            };
             String_list parts = string_split(text, '\n');
             for (size_t i = 0; i < parts.count; i++) {
                 String part = list_get(parts, i);
+                if (part.length == 0) continue; 
                 if (String_get_last(part) == '\n') { part.length -= 1; }
 
                 Publisher_Message message = parse_publisher_message(part);
