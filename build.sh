@@ -3,7 +3,6 @@
 set -xe
 
 gcc -g -o ./bin/publisher ./src/publisher.c
-gcc -g -o ./bin/gateway ./src/gateway.c
 gcc -g -o ./bin/broker ./src/broker.c
 gcc -g -o ./bin/subscriber ./src/subscriber.c
 

@@ -11,10 +11,10 @@ static State ctx = {
     .message_arrived = PTHREAD_COND_INITIALIZER,
 };
 
-void* gateway_connection(void* arg)
+void* publisher_connection(void* arg)
 {
     assert(sizeof(void*) >= sizeof(int));
-    int gateway_port = (int)(size_t)arg;
+    int publisher_port = (int)(size_t)arg;
 
     // Create socket
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -27,7 +27,7 @@ void* gateway_connection(void* arg)
     struct sockaddr_in server_addr = {
         .sin_family = AF_INET,
         .sin_addr.s_addr = INADDR_ANY,
-        .sin_port = htons(gateway_port),
+        .sin_port = htons(publisher_port),
     };
 
     // Bind socket
@@ -42,7 +42,7 @@ void* gateway_connection(void* arg)
         pthread_exit((void*)1);
     }
 
-    printf("Listening gateway on port %d...\n", gateway_port);
+    printf("Listening publisher on port %d...\n", publisher_port);
 
     while (true) {
         // Accept incoming connection
@@ -54,7 +54,7 @@ void* gateway_connection(void* arg)
             continue;
         }
 
-        printf("\nGateway connected to port %d.\n", gateway_port);
+        printf("\nGateway connected to port %d.\n", publisher_port);
 
         // Read data
         char buffer[BUFFER_SIZE] = {0};
@@ -85,7 +85,7 @@ void* gateway_connection(void* arg)
         }
 
         if (bytes_read == 0) {
-            printf("Gateway at port %d disconnected normally.\n", gateway_port);
+            printf("Gateway at port %d disconnected normally.\n", publisher_port);
         } else if (bytes_read < 0) {
             perror("ERROR: Reading publisher messages failed");
         }
@@ -226,11 +226,11 @@ void* listen_incoming_subscribers(void* arg)
 
 int main(int argc, const char** argv)
 {
-    int const gateway_ports_offset = 2;
-    int const gateway_ports_count = argc - gateway_ports_offset;
+    int const publisher_ports_offset = 2;
+    int const publisher_ports_count = argc - publisher_ports_offset;
 
-    if (argc - 1 < gateway_ports_offset) {
-        eprintfln("usage: %s <listening_port> <gateway_port_1> ... <gateway_port_n>", argv[0]);
+    if (argc - 1 < publisher_ports_offset) {
+        eprintfln("usage: %s <listening_port> <publisher_port_1> ... <publisher_port_n>", argv[0]);
         exit(1);
     }
 
@@ -244,19 +244,19 @@ int main(int argc, const char** argv)
         }
     }
 
-    pthread_t* gateway_threads = malloc(gateway_ports_count * sizeof(pthread_t));
+    pthread_t* publisher_threads = malloc(publisher_ports_count * sizeof(pthread_t));
 
-    for (int i = 0; i < gateway_ports_count; i++) {
-        int gateway_port = atoi(argv[i + gateway_ports_offset]);
-        int result = pthread_create(&gateway_threads[i], NULL, gateway_connection, (void*)(size_t)gateway_port);
+    for (int i = 0; i < publisher_ports_count; i++) {
+        int publisher_port = atoi(argv[i + publisher_ports_offset]);
+        int result = pthread_create(&publisher_threads[i], NULL, publisher_connection, (void*)(size_t)publisher_port);
         if (result != 0) {
-            eprintfln("ERROR: Failed to create gateway listener thread[%d]", i);
+            eprintfln("ERROR: Failed to create publisher listener thread[%d]", i);
             exit(1);
         }
     }
     
-    for (int i = 0; i < gateway_ports_count; i++) {
-        pthread_join(gateway_threads[i], NULL);
+    for (int i = 0; i < publisher_ports_count; i++) {
+        pthread_join(publisher_threads[i], NULL);
     }
     pthread_join(listening_thread, NULL);
 

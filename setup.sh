@@ -21,10 +21,10 @@ clean_docker_images() {
 }
 
 build_docker_images() {
-    sudo docker build -t pub1    -f ./publishers/pub1/Dockerfile    .
-    sudo docker build -t pub2    -f ./publishers/pub2/Dockerfile    .
-    sudo docker build -t broker1 -f ./publishers/broker1/Dockerfile .
-    sudo docker build -t sub1    -f ./publishers/sub1/Dockerfile    .
+    sudo docker build -t pub1    -f ./dockerfiles/pub1/Dockerfile    .
+    sudo docker build -t pub2    -f ./dockerfiles/pub2/Dockerfile    .
+    sudo docker build -t broker1 -f ./dockerfiles/broker1/Dockerfile .
+    sudo docker build -t sub1    -f ./dockerfiles/sub1/Dockerfile    .
 }
 
 run_detached_docker_images() {

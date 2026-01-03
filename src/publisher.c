@@ -61,13 +61,8 @@ int main(int argc, char **argv)
     printfln("Using publisher name: %s", publisher_name);
     arg++;
 
-    if (*arg == NULL) {
-        eprintfln("ERROR: Did not provide a host.\n");
-        usage(argv);
-    }
-    const char *host = *arg;
+    const char *host = "localhost";
     printfln("Using host: %s", host);
-    arg++;
 
     if (*arg == NULL) {
         eprintfln("ERROR: Did not provide a port.\n");
@@ -106,7 +101,7 @@ int main(int argc, char **argv)
 
 void usage(char **argv)
 {
-    eprintfln("usage: %s [command ...] -- <publisher_name> <broker_host> <broker_port>", argv[0]);
+    eprintfln("usage: %s [command ...] -- <publisher_name> <broker_port>", argv[0]);
     eprintfln("\nThe available commands are:");
     print_metric_list(stderr, metric_list);
     exit(EXIT_FAILURE);

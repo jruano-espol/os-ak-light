@@ -61,18 +61,20 @@ int listen_to_broker(const char *host, int port) {
     return listen_fd;
 }
 
+#define LOCALHOST "127.0.0.1"
+
 int main(int argc, const char** argv)
 {
-    if (argc - 1 != 5) {
-        eprintfln("usage: %s <broker_host> <broker_port> <topic> <listen_host> <listen_port>", argv[0]);
+    if (argc - 1 != 3) {
+        eprintfln("usage: %s <broker_port> <topic> <listen_port>", argv[0]);
         exit(1);
     }
 
-    const char *broker_host = argv[1];
-    int broker_port = atoi(argv[2]);
-    const char *topic = argv[3];
-    const char *listen_host = argv[4];
-    int listen_port = atoi(argv[5]);
+    const char *broker_host = LOCALHOST;
+    int broker_port = atoi(argv[1]);
+    const char *topic = argv[2];
+    const char *listen_host = LOCALHOST;
+    int listen_port = atoi(argv[3]);
 
     Topic parsed_topic = parse_topic(String_from_cstr(topic));
     if (!is_topic_valid(parsed_topic)) {
