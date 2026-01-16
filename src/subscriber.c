@@ -80,6 +80,8 @@ void usage(const char **argv)
 
 void send_threshold_twilio_message(const String message, double threshold)
 {
+    printfln("Sending notification that the message " PRI_String " exceeds the threshold of %g%%'",
+            fmt_String(message), threshold);
     char command[1<<10];
     snprintf(command, sizeof command, "./message.sh 'In %s the message " PRI_String " exceeds the threshold of %g%%'",
             ctx.subscriber_name, fmt_String(message), threshold);

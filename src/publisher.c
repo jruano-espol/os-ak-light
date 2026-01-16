@@ -85,29 +85,31 @@ int main(int argc, char **argv)
         arg++;
     }
 
-    const char *port;
-    if (*arg == NULL) {
-        eprintfln("ERROR: Did not provide a port.\n");
-        usage(argv);
-    } else {
-        port = *arg;
-        printfln("Using port: %s", port);
+    String_list cluster_ports = {};
+    while (*arg) {
+        String port = String_from_cstr(*arg);
+        list_append(&cluster_ports, port);
+        printfln("Added to cluster port: " PRI_String, fmt_String(port));
         arg++;
     }
-
-
-    printfln("Sample runs:");
-    for (size_t i = 0; i < used_metrics.count; i++) {
-        Metric metric = list_get(used_metrics, i);
-        String output = run(metric);
-        printfln(" - " PRI_String ": " PRI_String, fmt_String(metric.command_name), fmt_String(output));
-        string_destroy(&output);
+    if (cluster_ports.count <= 0) {
+        eprintfln("ERROR: Expected at least one port in the cluster.\n");
+        usage(argv);
     }
+    if (used_metrics.count != cluster_ports.count) {
+        eprintfln("ERROR: The number of used metrics and cluster ports must be the same.");
+        eprintfln("       Instead, the command was given %zu metrics and %zu ports.\n", used_metrics.count, cluster_ports.count);
+        usage(argv);
+    }
+
+    printfln("Using the following metrics:");
+    print_metric_list(stdout, used_metrics);
     printfln();
 
     while (true) {
         for (size_t i = 0; i < used_metrics.count; i++) {
             Metric metric = list_get(used_metrics, i);
+            String port = list_get(cluster_ports, i);
             if (manual_input) {
                 printfln("Waiting for user to press Enter...");
                 char buf[2];
@@ -119,7 +121,7 @@ int main(int argc, char **argv)
                     publisher_name, fmt_String(metric.command_name), fmt_String(output));
             list_append(&message, '\0');
             try_again:
-            if (!send_message(host, port, message)) goto try_again;
+            if (!send_message(host, port.data, message)) goto try_again;
             string_destroy(&output);
             string_builder_destroy(&message);
         }
@@ -130,12 +132,13 @@ int main(int argc, char **argv)
 
 void usage(char **argv)
 {
-    eprintfln("usage: %s [command ...] -- publisher_name input_mode broker_port", argv[0]);
+    eprintfln("usage: %s [command ...] -- publisher_name input_mode [broker_port ...]", argv[0]);
     eprintfln("\nThe available commands are:");
     print_metric_list(stderr, metric_list);
     eprintfln("\nThe available input modes are:");
     eprintfln(" - automatic: The program sends messages as fast as it can.");
     eprintfln(" - manual:    The program sends messages only when the user hits enter.");
+    eprintfln();
     exit(EXIT_FAILURE);
 }
 
