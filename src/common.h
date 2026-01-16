@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #define BUFFER_SIZE 1024
@@ -75,6 +76,11 @@
         (list)->count = (list)->capacity = 0;\
     }\
 } while (0)
+
+// CStrings
+// ------------------------------------------------------------------------------------------------------- //
+
+#define cstr_from_bool(b) ((b) ? "true" : "false")
 
 // Strings
 // ------------------------------------------------------------------------------------------------------- //
@@ -412,6 +418,7 @@ bool topics_match(Topic const a, Topic const b) {
 typedef struct {
     Topic topic;
     String value;
+    time_t timestamp;
 } Publisher_Message;
 
 #define PRI_Publisher_Message "(topic: " PRI_Topic ", value: \"%.*s\")"
@@ -460,6 +467,7 @@ Publisher_Message parse_publisher_message(String const text)
     Publisher_Message message = {
         .topic = topic,
         .value = string_clone(list_get(parts, 1)),
+        .timestamp = time(NULL),
     };
     list_destroy(&parts);
     return message;
@@ -476,6 +484,7 @@ typedef struct {
     Topic topic;
     String output_hostname;
     String output_port;
+    bool persistent;
 } Subscriber_Message;
 
 typedef struct {
@@ -483,14 +492,14 @@ typedef struct {
     size_t count, capacity;
 } Subscriber_Message_list;
 
-#define PRI_Subscriber_Message "(\"%.*s\", %.*s:%.*s)"
-#define fmt_Subscriber_Message(msg) fmt_String((msg).topic.original), fmt_String((msg).output_hostname), fmt_String((msg).output_port)
+#define PRI_Subscriber_Message "(\"%.*s\", %.*s:%.*s, %s)"
+#define fmt_Subscriber_Message(msg) fmt_String((msg).topic.original), fmt_String((msg).output_hostname), fmt_String((msg).output_port), ((msg).persistent ? "persistent" : "not persistent")
 
 Subscriber_Message* parse_subscriber_message(String const text)
 {
     String_list parts = string_split(text, '|');
-    if (parts.count != 2) {
-        eprintfln("ERROR: Subscriber message has %d parts instead of 2: \"%.*s\"", (int)parts.count, fmt_String(text));
+    if (parts.count != 3) {
+        eprintfln("ERROR: Subscriber message has %d parts instead of 3: \"%.*s\"", (int)parts.count, fmt_String(text));
         goto had_error;
     }
 
@@ -503,10 +512,13 @@ Subscriber_Message* parse_subscriber_message(String const text)
         goto had_error;
     }
 
+    const bool persistent = string_equals(list_get(parts, 2), str8("p"));
+
     Subscriber_Message* message = (Subscriber_Message*)malloc(sizeof(*message));
     message->topic = topic;
     message->output_hostname = string_clone(list_get(output_parts, 0));
     message->output_port = string_clone(list_get(output_parts, 1));
+    message->persistent = persistent;
 
     list_destroy(&output_parts);
     list_destroy(&parts);
@@ -539,4 +551,17 @@ void subscriber_forward_message(Subscriber_Message const sub, Publisher_Message 
         printfln("Subscriber " PRI_Subscriber_Message " rejected " PRI_Publisher_Message,
                 fmt_Subscriber_Message(sub), fmt_Publisher_Message(message));
     }
+}
+
+// Ports
+// ------------------------------------------------------------------------------------------------------- //
+
+bool is_port_in(const String_list ports, String port)
+{
+    for (size_t i = 0; i < ports.count; i++) {
+        if (string_equals(list_get(ports, i), port)) {
+            return true;
+        }
+    }
+    return false;
 }

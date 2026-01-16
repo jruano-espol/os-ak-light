@@ -4,4 +4,4 @@ COPY src/common.h src/common.h
 COPY src/publisher.c src/publisher.c
 CMD set -xe && \
     gcc -o ./bin/publisher src/publisher.c && \
-    publisher cpu-usage disk-usage -- pub1 6700
+    publisher cpu-usage disk-usage -- pub1 automatic 6700

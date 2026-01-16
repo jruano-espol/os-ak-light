@@ -1,4 +1,5 @@
 #include "common.h"
+#include <sys/wait.h>
 
 typedef struct {
     String command;
@@ -53,24 +54,47 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
+    const char *publisher_name;
     if (*arg == NULL) {
         eprintfln("ERROR: Did not provide a publisher name.\n");
         usage(argv);
+    } else {
+        publisher_name = *arg;
+        printfln("Using publisher name: %s", publisher_name);
+        arg++;
     }
-    const char *publisher_name = *arg;
-    printfln("Using publisher name: %s", publisher_name);
-    arg++;
 
     const char *host = "localhost";
     printfln("Using host: %s", host);
 
+    bool manual_input;
     if (*arg == NULL) {
         eprintfln("ERROR: Did not provide a port.\n");
         usage(argv);
+    } else {
+        String input_mode = String_from_cstr(*arg);
+        if (string_equals(input_mode, str8("automatic"))) {
+            manual_input = false;
+        } else if (string_equals(input_mode, str8("manual"))) {
+            manual_input = true;
+        } else {
+            eprintfln("Invalid input mode: \"%s\"", input_mode.data);
+            usage(argv);
+        }
+        printfln("Using using input_mode: \"%s\"", input_mode.data);
+        arg++;
     }
-    const char *port = *arg;
-    printfln("Using port: %s", port);
-    arg++;
+
+    const char *port;
+    if (*arg == NULL) {
+        eprintfln("ERROR: Did not provide a port.\n");
+        usage(argv);
+    } else {
+        port = *arg;
+        printfln("Using port: %s", port);
+        arg++;
+    }
+
 
     printfln("Sample runs:");
     for (size_t i = 0; i < used_metrics.count; i++) {
@@ -84,6 +108,11 @@ int main(int argc, char **argv)
     while (true) {
         for (size_t i = 0; i < used_metrics.count; i++) {
             Metric metric = list_get(used_metrics, i);
+            if (manual_input) {
+                printfln("Waiting for user to press Enter...");
+                char buf[2];
+                fgets(buf, sizeof(buf), stdin);
+            }
             String output = run(metric);
             String_Builder message = {};
             string_builder_appendf(&message, "%s/" PRI_String "|" PRI_String "\n",
@@ -101,9 +130,12 @@ int main(int argc, char **argv)
 
 void usage(char **argv)
 {
-    eprintfln("usage: %s [command ...] -- <publisher_name> <broker_port>", argv[0]);
+    eprintfln("usage: %s [command ...] -- publisher_name input_mode broker_port", argv[0]);
     eprintfln("\nThe available commands are:");
     print_metric_list(stderr, metric_list);
+    eprintfln("\nThe available input modes are:");
+    eprintfln(" - automatic: The program sends messages as fast as it can.");
+    eprintfln(" - manual:    The program sends messages only when the user hits enter.");
     exit(EXIT_FAILURE);
 }
 
@@ -181,34 +213,57 @@ void print_metric_list(FILE *out, Metric_list const metrics)
 
 String run(Metric const metric)
 {
-    String null_terminated = string_clone(metric.command);
-
-    FILE *file = popen(null_terminated.data, "r");
-    if (file == NULL) {
-        perror("ERROR: popen failed");
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        perror("ERROR: pipe");
         exit(EXIT_FAILURE);
     }
 
-    String_Builder builder = {};
-    char buffer[512];
-    while (fgets(buffer, sizeof(buffer), file) != NULL ) {
-        for (char *it = buffer; *it; it++) {
-            list_append(&builder, *it);
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        perror("ERROR: fork");
+        exit(EXIT_FAILURE);
+    } else if (pid == 0) {
+        // Child process
+        close(pipefd[0]);               // Close read end.
+        dup2(pipefd[1], STDOUT_FILENO); // Redirect stdout to pipe.
+        close(pipefd[1]);               // Write end is not neaded anymore, as stdout references it.
+
+        String null_terminated = string_clone(metric.command);
+        execl("/bin/sh", "sh", "-c", null_terminated.data, NULL);
+
+        // The function execl replaces the current process with the command it runs.
+        // If it returns it means that it failed.
+        perror("ERROR: exec");
+        exit(EXIT_FAILURE);
+    } else {
+        // Parent process
+        close(pipefd[1]); // Close write end.
+
+        String_Builder builder = {};
+        char buffer[512];
+        while (read(pipefd[0], buffer, sizeof buffer) > 0) {
+            for (char *it = buffer; *it; it++) {
+                list_append(&builder, *it);
+            }
         }
+
+        close(pipefd[0]);      // Close read end.
+        waitpid(pid, NULL, 0); // Wait for child process to finish.
+
+        String output = String_from_builder(builder);
+        if (output.length == 0) {
+            return string_clone(str8("<nothing>"));
+        }
+        if (String_get_last(output) == '\n') {
+            output.length -= 1;
+        }
+
+        return output;
     }
 
-    String output = String_from_builder(builder);
-    if (output.length == 0) {
-        return string_clone(str8("<nothing>"));
-    }
-    if (String_get_last(output) == '\n') {
-        output.length -= 1;
-    }
-
-    pclose(file);
-    string_destroy(&null_terminated);
-
-    return output;
+    return (String){}; // unreachable
 }
 
 int connect_to_broker(const char *host, const char *port)

@@ -61,12 +61,26 @@ int listen_to_broker(const char *host, int port) {
     return listen_fd;
 }
 
+bool get_persistence(const char *str) {
+    if (strcmp(str, "persistent") == 0) {
+        return true;
+    } else if (strcmp(str, "not_persistent") == 0) {
+        return false;
+    } else {
+        eprintfln("ERROR: Invalid persistence: \"%s\"", str);
+        eprintfln("Valid values are \"persistent\" and \"not_persistent\"");
+        exit(1);
+    }
+    return false;
+}
+
 #define LOCALHOST "127.0.0.1"
 
 int main(int argc, const char** argv)
 {
-    if (argc - 1 != 3) {
-        eprintfln("usage: %s <broker_port> <topic> <listen_port>", argv[0]);
+    if (argc - 1 != 4) {
+        eprintfln("usage: %s broker_port topic listen_port persistence", argv[0]);
+        eprintfln(" - persistence: Can be \"persistent\" or \"not_persistent\"");
         exit(1);
     }
 
@@ -75,6 +89,7 @@ int main(int argc, const char** argv)
     const char *topic = argv[2];
     const char *listen_host = LOCALHOST;
     int listen_port = atoi(argv[3]);
+    bool persistent = get_persistence(argv[4]);
 
     Topic parsed_topic = parse_topic(String_from_cstr(topic));
     if (!is_topic_valid(parsed_topic)) {
@@ -84,6 +99,7 @@ int main(int argc, const char** argv)
     printf("Subscriber starting...\n");
     printf(" - Broker: %s:%d\n", broker_host, broker_port);
     printf(" - Topic: %s\n", topic);
+    printf(" - Persistent: %s\n", cstr_from_bool(persistent));
     printf(" - Listening on %s:%d\n", listen_host, listen_port);
 
     int listen_fd = listen_to_broker(listen_host, listen_port);
@@ -101,7 +117,8 @@ int main(int argc, const char** argv)
         }
 
         char registration_message[256];
-        snprintf(registration_message, sizeof(registration_message), "%s|%s:%d\n", topic, listen_host, listen_port);
+        snprintf(registration_message, sizeof(registration_message), "%s|%s:%d|%s\n",
+                topic, listen_host, listen_port, persistent ? "p" : "-");
 
         printf("Sending registration: %s\n", registration_message);
         send(broker_fd, registration_message, strlen(registration_message), 0);
@@ -127,5 +144,6 @@ int main(int argc, const char** argv)
 
         close(connection);
     }
+
     close(listen_fd);
 }

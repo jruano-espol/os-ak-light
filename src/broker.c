@@ -19,7 +19,7 @@ void* publisher_connection(void* arg)
     // Create socket
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
-        perror("socket failed");
+        perror("ERROR: socket failed");
         pthread_exit((void*)1);
     }
 
@@ -32,13 +32,13 @@ void* publisher_connection(void* arg)
 
     // Bind socket
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        perror("bind failed");
+        perror("ERROR: bind failed");
         pthread_exit((void*)1);
     }
 
     // Listen for connections
     if (listen(server_fd, 5) < 0) {
-        perror("listen failed");
+        perror("ERROR: listen failed");
         pthread_exit((void*)1);
     }
 
@@ -50,11 +50,11 @@ void* publisher_connection(void* arg)
         socklen_t client_len = sizeof(client_addr);
         int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
         if (client_fd < 0) {
-            perror("accept failed");
+            perror("ERROR: accept failed");
             continue;
         }
 
-        printf("\nGateway connected to port %d.\n", publisher_port);
+        printf("\nPublisher connected to port %d.\n", publisher_port);
 
         // Read data
         char buffer[BUFFER_SIZE] = {0};
@@ -69,6 +69,7 @@ void* publisher_connection(void* arg)
                 String part = list_get(parts, i);
                 if (part.length == 0) continue; 
                 if (String_get_last(part) == '\n') { part.length -= 1; }
+                if (part.length == 0) continue; 
 
                 Publisher_Message message = parse_publisher_message(part);
                 if (is_publisher_message_valid(message)) {
@@ -85,7 +86,7 @@ void* publisher_connection(void* arg)
         }
 
         if (bytes_read == 0) {
-            printf("Gateway at port %d disconnected normally.\n", publisher_port);
+            printf("Publisher at port %d disconnected normally.\n", publisher_port);
         } else if (bytes_read < 0) {
             perror("ERROR: Reading publisher messages failed");
         }
@@ -105,7 +106,8 @@ void* subscriber_connection(void* arg)
 
     printfln("Added Subscriber: " PRI_Subscriber_Message, fmt_Subscriber_Message(sub));
 
-    /* Forwarding messages already on the list */ {
+    // Forwarding messages already on the list
+    if (sub.persistent) {
         Publisher_Message_list snapshot = get_messages_snapshot(ctx.messages, &ctx.messages_mutex);
         if (snapshot.count > 0) {
             for (size_t i = 0; i < snapshot.count; i++) {
@@ -127,20 +129,26 @@ void* subscriber_connection(void* arg)
                 break;
             }
         }
-
         size_t new_count = ctx.messages.count;
-        size_t count = new_count - last_count;
-        Publisher_Message* slice = (Publisher_Message*)malloc(count * sizeof(*slice));
-        assert(slice != NULL);
-        for (size_t i = 0; i < count; i++) {
-            slice[i] = list_get(ctx.messages, last_count + i);
-        }
-        pthread_mutex_unlock(&ctx.messages_mutex);
 
-        for (size_t i = 0; i < count; i++) {
-            subscriber_forward_message(sub, slice[i]);
+        if (sub.persistent) {
+            size_t count = new_count - last_count;
+            Publisher_Message* slice = (Publisher_Message*)malloc(count * sizeof(*slice));
+            assert(slice != NULL);
+            for (size_t i = 0; i < count; i++) {
+                slice[i] = list_get(ctx.messages, last_count + i);
+            }
+            pthread_mutex_unlock(&ctx.messages_mutex);
+
+            for (size_t i = 0; i < count; i++) {
+                subscriber_forward_message(sub, slice[i]);
+            }
+            free(slice);
+        } else {
+            Publisher_Message message = list_get(ctx.messages, new_count - 1);
+            pthread_mutex_unlock(&ctx.messages_mutex);
+            subscriber_forward_message(sub, message);
         }
-        free(slice);
     }
 }
 
@@ -177,6 +185,8 @@ void* listen_incoming_subscribers(void* arg)
 
     printf("Listening to subscribers on port %d...\n", listening_port);
 
+    String_list existing_ports = {};
+
     while (true) {
         // Accept incoming connection
         struct sockaddr_in client_addr;
@@ -198,10 +208,15 @@ void* listen_incoming_subscribers(void* arg)
                 text.length -= 1;
                 Subscriber_Message* subscriber = parse_subscriber_message(text);
 
-                if (subscriber != NULL) {
+                const bool create_thread = (subscriber != NULL) &&
+                    (subscriber->persistent || !is_port_in(existing_ports, subscriber->output_port));
+
+                if (create_thread) {
                     pthread_t subscriber_thread;
                     int result = pthread_create(&subscriber_thread, NULL, subscriber_connection, (void*)subscriber);
-                    if (result != 0) {
+                    if (result == 0) {
+                        list_append(&existing_ports, subscriber->output_port);
+                    } else {
                         eprintfln("ERROR: Failed to create subscriber thread");
                         free(subscriber);
                     }
@@ -224,23 +239,77 @@ void* listen_incoming_subscribers(void* arg)
     return NULL;
 }
 
+void usage(const char **argv)
+{
+    eprintfln("usage: %s message_storage_time subscriber_port [publisher_port ...]", argv[0]);
+    eprintfln("\nmessage_sorage_time:");
+    eprintfln(" - session: The messages never get removed from the list.");
+    eprintfln(" - <x>s: The messages get removed from the list after <x> seconds.");
+    exit(EXIT_FAILURE);
+}
+
+void *old_messages_cleaner(void *arg) {
+    unsigned int wait_time = (unsigned int)(size_t)arg;
+
+    while (true) {
+        sleep(wait_time);
+        time_t now = time(NULL);
+
+        pthread_mutex_lock(&ctx.messages_mutex);
+        if (ctx.messages.count > 0) {
+            Publisher_Message first = list_get(ctx.messages, 0);
+            time_t duration = now - first.timestamp;
+            if (duration > wait_time) {
+                printfln("Cleaned old message: " PRI_Publisher_Message, fmt_Publisher_Message(first));
+                ctx.messages.count--;
+                for (size_t i = 0; i < ctx.messages.count; i++) {
+                    list_set(ctx.messages, i, list_get(ctx.messages, i + 1));
+                }
+            }
+        }
+        pthread_mutex_unlock(&ctx.messages_mutex);
+    }
+    return NULL;
+}
+
 int main(int argc, const char** argv)
 {
-    int const publisher_ports_offset = 2;
+    int const publisher_ports_offset = 3;
     int const publisher_ports_count = argc - publisher_ports_offset;
 
     if (argc - 1 < publisher_ports_offset) {
-        eprintfln("usage: %s <listening_port> <publisher_port_1> ... <publisher_port_n>", argv[0]);
-        exit(1);
+        usage(argv);
+    }
+
+    pthread_t cleaner_thread;
+    bool has_cleaner_thread = false;
+    /* Setting up how long messages can be stored */ {
+        String message_storage_time = String_from_cstr(argv[1]);
+        if (string_equals(message_storage_time, str8("session"))) {
+            printfln("INFO: Messages last for the whole session");
+        } else {
+            int storage_time_seconds = storage_time_seconds = atoi(message_storage_time.data);
+            if (storage_time_seconds <= 0) {
+                eprintfln("ERROR: Messages can't last for %d seconds. Maybe had an error parsing an integer out of \"%s\"", storage_time_seconds, message_storage_time.data);
+                usage(argv);
+            }
+            printfln("INFO: Messages last for %d seconds", storage_time_seconds);
+            int result = pthread_create(&cleaner_thread, NULL, old_messages_cleaner, (void*)(size_t)storage_time_seconds);
+            if (result != 0) {
+                eprintfln("ERROR: Failed to create old message cleaner thread");
+                exit(EXIT_FAILURE);
+            }
+            has_cleaner_thread = true;
+        }
     }
 
     pthread_t listening_thread;
     /* Launch thread to listen to subscribers */ {
-        int listening_port = atoi(argv[1]);
+        int listening_port = atoi(argv[2]);
         int result = pthread_create(&listening_thread, NULL, listen_incoming_subscribers, (void*)(size_t)listening_port);
         if (result != 0) {
             eprintfln("ERROR: Failed to create subscriber listener thread");
-            exit(1);
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -251,7 +320,7 @@ int main(int argc, const char** argv)
         int result = pthread_create(&publisher_threads[i], NULL, publisher_connection, (void*)(size_t)publisher_port);
         if (result != 0) {
             eprintfln("ERROR: Failed to create publisher listener thread[%d]", i);
-            exit(1);
+            exit(EXIT_FAILURE);
         }
     }
     
@@ -259,6 +328,11 @@ int main(int argc, const char** argv)
         pthread_join(publisher_threads[i], NULL);
     }
     pthread_join(listening_thread, NULL);
+    pthread_join(listening_thread, NULL);
+
+    if (has_cleaner_thread) {
+        pthread_join(cleaner_thread, NULL);
+    }
 
     return 0;
 }
