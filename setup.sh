@@ -11,30 +11,26 @@ clean_docker_containers() {
     fi
 }
 
+IMAGES=(pub1 pub2 broker1 broker2 sub1 sub2)
+
 clean_docker_images() {
     sudo docker system prune -f
 
-    sudo docker rmi -f pub1
-    sudo docker rmi -f pub2
-    sudo docker rmi -f broker1
-    sudo docker rmi -f broker2
-    sudo docker rmi -f sub1
+    for img in "${IMAGES[@]}"; do
+        sudo docker rmi -f "$img"
+    done
 }
 
 build_docker_images() {
-    sudo docker build -t pub1    -f ./dockerfiles/pub1/Dockerfile    .
-    sudo docker build -t pub2    -f ./dockerfiles/pub2/Dockerfile    .
-    sudo docker build -t broker1 -f ./dockerfiles/broker1/Dockerfile .
-    sudo docker build -t broker2 -f ./dockerfiles/broker2/Dockerfile .
-    sudo docker build -t sub1    -f ./dockerfiles/sub1/Dockerfile    .
+    for img in "${IMAGES[@]}"; do
+        sudo docker build -t "$img" -f "./dockerfiles/$img/Dockerfile" .
+    done
 }
 
 run_detached_docker_images() {
-    sudo docker run -d --network host --name pub1    pub1
-    sudo docker run -d --network host --name pub2    pub2
-    sudo docker run -d --network host --name broker1 broker1
-    sudo docker run -d --network host --name broker2 broker2
-    sudo docker run -d --network host --name sub1    sub1
+    for img in "${IMAGES[@]}"; do
+        sudo docker run -d --network host --name "$img" "$img"
+    done
 }
 
 if [ "$1" == "clean-images" ]; then

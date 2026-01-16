@@ -1,5 +1,12 @@
 #include "common.h"
 
+typedef struct {
+    const char *subscriber_name;
+    const char *topic;
+} State;
+
+static State ctx = {};
+
 int connect_to_broker(const char *host, int port) {
     int broker_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (broker_fd < 0) {
@@ -61,51 +68,100 @@ int listen_to_broker(const char *host, int port) {
     return listen_fd;
 }
 
-bool get_persistence(const char *str) {
-    if (strcmp(str, "persistent") == 0) {
-        return true;
-    } else if (strcmp(str, "not_persistent") == 0) {
-        return false;
-    } else {
-        eprintfln("ERROR: Invalid persistence: \"%s\"", str);
-        eprintfln("Valid values are \"persistent\" and \"not_persistent\"");
-        exit(1);
+void usage(const char **argv)
+{
+    eprintfln("usage: %s subscriber_name topic broker_port listen_port [flags ...]", argv[0]);
+    eprintfln("\nflags:");
+    eprintfln("    -persistent: Makes the session persistent. It is NOT persistent by default.");
+    eprintfln("    -threshold <arg>: Enables sending whatsapp notifications when a message exceeds <arg> (which is an int).");
+    eprintfln();
+    exit(EXIT_FAILURE);
+}
+
+void send_threshold_twilio_message(const String message, double threshold)
+{
+    char command[1<<10];
+    snprintf(command, sizeof command, "./message.sh 'In %s the message " PRI_String " exceeds the threshold of %g%%'",
+            ctx.subscriber_name, fmt_String(message), threshold);
+    system(command);
+}
+
+void notify_if_exceeds(const String message, double threshold)
+{
+    const String value_prefix = str8("value: \"");
+    ssize_t value_index = string_find_substr(message, value_prefix);
+    if (value_index < 0) {
+        eprintfln("ERROR: Message does not have value.");
+        return;
     }
-    return false;
+    String value = {
+        .data = message.data + value_index + value_prefix.length,
+        .length = message.length - value_index - value_prefix.length,
+    };
+    const double message_threshold = strtod(value.data, NULL);
+    if (message_threshold > threshold) {
+        send_threshold_twilio_message(message, threshold);
+    }
 }
 
 #define LOCALHOST "127.0.0.1"
 
 int main(int argc, const char** argv)
 {
-    if (argc - 1 != 4) {
-        eprintfln("usage: %s broker_port topic listen_port persistence", argv[0]);
-        eprintfln(" - persistence: Can be \"persistent\" or \"not_persistent\"");
-        exit(1);
+    if (argc - 1 < 4) {
+        usage(argv);
     }
 
+    ctx.subscriber_name = argv[1];
+    ctx.topic = argv[2];
+    int broker_port = atoi(argv[3]);
     const char *broker_host = LOCALHOST;
-    int broker_port = atoi(argv[1]);
-    const char *topic = argv[2];
     const char *listen_host = LOCALHOST;
-    int listen_port = atoi(argv[3]);
-    bool persistent = get_persistence(argv[4]);
+    int listen_port = atoi(argv[4]);
 
-    Topic parsed_topic = parse_topic(String_from_cstr(topic));
+
+    bool persistent = false;
+    bool uses_threshold = false;
+    double threshold = 0.0;
+
+    for (const char **flag = &argv[5]; *flag != NULL; flag++) {
+        if (strcmp(*flag, "-persistent") == 0) {
+            persistent = true;
+        } else if (strcmp(*flag, "-threshold") == 0) {
+            uses_threshold = true;
+            flag++;
+            if (*flag == NULL) {
+                eprintfln("ERROR: Must supply an argument to specify the threshold.\n");
+                usage(argv);
+            }
+            threshold = strtod(*flag, NULL);
+        } else {
+            eprintfln("ERROR: Unrecognized flag \"%s\".\n", *flag);
+            usage(argv);
+        }
+    }
+
+    Topic parsed_topic = parse_topic(String_from_cstr(ctx.topic));
     if (!is_topic_valid(parsed_topic)) {
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     printf("Subscriber starting...\n");
+    printf(" - Name: %s\n", ctx.subscriber_name);
+    printf(" - Topic: %s\n", ctx.topic);
     printf(" - Broker: %s:%d\n", broker_host, broker_port);
-    printf(" - Topic: %s\n", topic);
-    printf(" - Persistent: %s\n", cstr_from_bool(persistent));
     printf(" - Listening on %s:%d\n", listen_host, listen_port);
+    printf(" - Persistent: %s\n", cstr_from_bool(persistent));
+    if (uses_threshold) {
+        printf(" - Threshold: %g\n", threshold);
+    } else {
+        printf(" - Threshold: Not existent\n");
+    }
 
     int listen_fd = listen_to_broker(listen_host, listen_port);
     if (listen_fd < 0) {
         eprintfln("Failed to start listener.");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     /* Sending the registration message to the Broker */ {
@@ -118,7 +174,7 @@ int main(int argc, const char** argv)
 
         char registration_message[256];
         snprintf(registration_message, sizeof(registration_message), "%s|%s:%d|%s\n",
-                topic, listen_host, listen_port, persistent ? "p" : "-");
+                ctx.topic, listen_host, listen_port, persistent ? "p" : "-");
 
         printf("Sending registration: %s\n", registration_message);
         send(broker_fd, registration_message, strlen(registration_message), 0);
@@ -138,8 +194,12 @@ int main(int argc, const char** argv)
         char buffer[BUFFER_SIZE];
         ssize_t bytes_read = recv(connection, buffer, sizeof(buffer), 0);
         if (bytes_read > 0) {
-            buffer[bytes_read] = '\0';
-            printfln("Received message: %.*s", (int)bytes_read, buffer);
+            const String message = { .data = buffer, .length = bytes_read };
+            printfln("Received message: %.*s", fmt_String(message));
+
+            if (uses_threshold) {
+                notify_if_exceeds(message, threshold);
+            }
         }
 
         close(connection);

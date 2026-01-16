@@ -173,6 +173,30 @@ bool string_is_only_whitespace(String const str)
     return true;
 }
 
+ssize_t string_find_substr(String const str, String const substr)
+{
+    for (size_t i = 0; i < str.length; i++) {
+        String slice = {
+            .data = str.data + i,
+            .length = Min(substr.length, str.length - i),
+        };
+        if (string_equals(slice, substr)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+ssize_t string_find_char(String const str, char c)
+{
+    for (size_t i = 0; i < str.length; i++) {
+        if (String_get(str, i) == c) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 // String Builder
 // ------------------------------------------------------------------------------------------------------- //
 

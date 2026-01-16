@@ -1,4 +1,4 @@
-# Subscriber 1
+# Subscriber 2
 # -------------------------------------------------------- #
 FROM gcc:15
 COPY commands.txt commands.txt
@@ -7,5 +7,5 @@ COPY src/subscriber.c src/subscriber.c
 COPY message.sh message.sh
 CMD set -xe && \
     gcc -o ./bin/subscriber src/subscriber.c && \
-    subscriber sub1 '#' 6400 7600 -persistent -threshold 1.2
+    subscriber sub2 '#' 6401 7601 -persistent -threshold 9.4
 

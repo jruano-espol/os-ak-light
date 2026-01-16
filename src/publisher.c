@@ -243,9 +243,10 @@ String run(Metric const metric)
 
         String_Builder builder = {};
         char buffer[512];
-        while (read(pipefd[0], buffer, sizeof buffer) > 0) {
-            for (char *it = buffer; *it; it++) {
-                list_append(&builder, *it);
+        ssize_t bytes_read = 0;
+        while ((bytes_read = read(pipefd[0], buffer, sizeof buffer)) > 0) {
+            for (ssize_t i = 0; i < bytes_read; i++) {
+                list_append(&builder, buffer[i]);
             }
         }
 

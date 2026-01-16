@@ -2,10 +2,10 @@ cpu-usage:
 top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1 "%"}'
 
 memory-usage:
-free -m | grep Mem | awk '{print $3 " MB / " $2 " MB (" $3/$2*100 "%)"}'
+free -m | grep Mem | awk '{print $3/$2*100 "% (" $3 " MB / " $2 " MB )"}'
 
 disk-usage:
-df -h / | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}'
+df -h / | awk 'NR==2 {print $5 " (" $3 " / " $2 ")"}'
 
 login-error-logs:
 cat /var/log/btmp
