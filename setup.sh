@@ -11,7 +11,7 @@ clean_docker_containers() {
     fi
 }
 
-IMAGES=(pub1 pub2 broker1 broker2 sub1 sub2)
+IMAGES=(broker1 broker2 sub1 sub2 pub1 pub2)
 
 clean_docker_images() {
     sudo docker system prune -f
@@ -33,16 +33,20 @@ run_detached_docker_images() {
     done
 }
 
-if [ "$1" == "clean-images" ]; then
+set -xe
+if [ "$1" == "clean-build" ]; then
+    clean_docker_containers
+    clean_docker_images
+    build_docker_images
+elif [ "$1" == "clean" ]; then
+    clean_docker_containers
+elif [ "$1" == "run" ]; then
+    run_detached_docker_images
+elif [ "$1" != "" ]; then
     clean_docker_containers
     clean_docker_images
     build_docker_images
     run_detached_docker_images
-elif [ "$1" == "clean" ]; then
-    clean_docker_containers
 else
-    clean_docker_containers
-    set -xe
-    build_docker_images
-    run_detached_docker_images
+    echo "Unrecognized option $1"
 fi

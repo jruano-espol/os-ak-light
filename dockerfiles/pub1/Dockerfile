@@ -4,7 +4,8 @@ FROM gcc:15
 COPY commands.txt commands.txt
 COPY src/common.h src/common.h
 COPY src/publisher.c src/publisher.c
-CMD set -xe && \
+CMD set -x && \
+    mkdir -p bin && \
     gcc -o ./bin/publisher src/publisher.c && \
-    publisher cpu-usage disk-usage -- pub1 automatic 6700 6701
+    ./bin/publisher cpu-usage disk-usage -- pub1 automatic 6700 6701
 
